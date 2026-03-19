@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CodeCraftHub Dashboard</title>
+  <title>CodeCraftHub: Your Learning Management Platform</title>
   <style>
     /* ── Reset & Base ─────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -106,8 +106,8 @@
     }
     .btn:hover { opacity: .9; }
     .btn:active { transform: scale(.97); }
-    .btn-primary { background: var(--primary); color: var(--white); }
-    .btn-success { background: var(--success); color: var(--white); }
+    .btn-primary { background: #8B5CF6; color: #FFFFFF; }
+    .btn-success { background: #F59E0B; color: #FFFFFF; }
     .btn-danger  { background: var(--delete);  color: var(--white); }
     .btn-cancel  { background: var(--gray-200); color: var(--gray-700); }
     .btn-sm { padding: .4rem .75rem; font-size: .8rem; }
@@ -347,7 +347,7 @@
             </div>
             <div class="course-actions">
               <button class="btn btn-success btn-sm" onclick="openEdit(${c.id})">✏️ Edit</button>
-              <button class="btn btn-danger btn-sm"  onclick="deleteCourse(${c.id})">🗑 Remove</button>
+              <button class="btn-danger" onclick="handleDelete(${c.id})">Remove</button>
             </div>
           </div>
         `).join("") +
