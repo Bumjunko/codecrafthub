@@ -10,8 +10,10 @@ import os
 from datetime import datetime
 
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # Path to the JSON file that stores all course data
 COURSES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "courses.json")
