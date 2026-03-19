@@ -1,12 +1,14 @@
 """
 test_app.py — pytest test suite for the CodeCraftHub API.
 
-Covers every endpoint with both success and failure cases.
+Covers all CRUD endpoints, validation, error handling, and the stats endpoint.
 Run with:  pytest test_app.py -v
 """
 
+import json
+import os
 import pytest
-from app import app, PROGRESS
+from app import app, COURSES_FILE
 
 
 # ---------------------------------------------------------------------------
@@ -15,28 +17,36 @@ from app import app, PROGRESS
 
 @pytest.fixture
 def client():
-    """Create a Flask test client for sending requests."""
+    """Create a Flask test client."""
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c
 
 
 @pytest.fixture(autouse=True)
-def reset_progress():
-    """Reset in-memory PROGRESS data before every test so tests stay independent."""
-    original = {
-        "u1": [{"course_id": "c1", "completed_lessons": 3}],
-        "u2": [{"course_id": "c3", "completed_lessons": 6}],
-    }
-    PROGRESS.clear()
-    PROGRESS.update(original)
+def clean_courses_file():
+    """Ensure a fresh, empty courses.json before each test and clean up after."""
+    if os.path.exists(COURSES_FILE):
+        os.remove(COURSES_FILE)
     yield
-    PROGRESS.clear()
-    PROGRESS.update(original)
+    if os.path.exists(COURSES_FILE):
+        os.remove(COURSES_FILE)
+
+
+def sample_course(**overrides):
+    """Return a valid course payload, with optional field overrides."""
+    data = {
+        "name": "Python Basics",
+        "description": "Learn Python fundamentals",
+        "target_date": "2025-12-31",
+        "status": "Not Started",
+    }
+    data.update(overrides)
+    return data
 
 
 # ===========================================================================
-# 1. GET /  — Home / Welcome
+# GET / — Welcome
 # ===========================================================================
 
 class TestIndex:
@@ -44,262 +54,216 @@ class TestIndex:
         res = client.get("/")
         assert res.status_code == 200
 
-    def test_returns_json_with_welcome_message(self, client):
+    def test_returns_welcome_message(self, client):
         body = client.get("/").get_json()
         assert "Welcome" in body["message"]
 
-    def test_lists_available_endpoints(self, client):
+    def test_lists_endpoints(self, client):
         body = client.get("/").get_json()
         assert "endpoints" in body
-        assert len(body["endpoints"]) >= 6
 
 
 # ===========================================================================
-# 2. GET /users
+# POST /api/courses — Create
 # ===========================================================================
 
-class TestGetUsers:
-    def test_returns_200(self, client):
-        res = client.get("/users")
-        assert res.status_code == 200
-
-    def test_returns_list(self, client):
-        users = client.get("/users").get_json()
-        assert isinstance(users, list)
-
-    def test_contains_all_sample_users(self, client):
-        users = client.get("/users").get_json()
-        names = {u["name"] for u in users}
-        assert names == {"Alice", "Bob", "Charlie"}
-
-    def test_each_user_has_required_fields(self, client):
-        users = client.get("/users").get_json()
-        for user in users:
-            assert "id" in user
-            assert "name" in user
-            assert "interests" in user
-
-
-# ===========================================================================
-# 3. GET /courses
-# ===========================================================================
-
-class TestGetCourses:
-    def test_returns_200(self, client):
-        res = client.get("/courses")
-        assert res.status_code == 200
-
-    def test_returns_list(self, client):
-        courses = client.get("/courses").get_json()
-        assert isinstance(courses, list)
-
-    def test_contains_all_sample_courses(self, client):
-        courses = client.get("/courses").get_json()
-        assert len(courses) == 5
-
-    def test_each_course_has_required_fields(self, client):
-        courses = client.get("/courses").get_json()
-        for course in courses:
-            assert "id" in course
-            assert "title" in course
-            assert "tags" in course
-            assert "total_lessons" in course
-
-
-# ===========================================================================
-# 4. GET /progress/<user_id>
-# ===========================================================================
-
-class TestGetProgress:
-    # ---- Success cases ----------------------------------------------------
-
-    def test_returns_200_for_valid_user(self, client):
-        res = client.get("/progress/u1")
-        assert res.status_code == 200
-
-    def test_returns_user_info_and_progress(self, client):
-        body = client.get("/progress/u1").get_json()
-        assert body["user_id"] == "u1"
-        assert body["user_name"] == "Alice"
-        assert len(body["progress"]) == 1
-
-    def test_progress_contains_course_details(self, client):
-        prog = client.get("/progress/u1").get_json()["progress"][0]
-        assert prog["course_id"] == "c1"
-        assert prog["course_title"] == "Python Basics"
-        assert prog["completed_lessons"] == 3
-        assert prog["total_lessons"] == 5
-
-    def test_user_with_no_enrollments(self, client):
-        body = client.get("/progress/u3").get_json()
-        assert body["user_id"] == "u3"
-        assert body["progress"] == []
-
-    # ---- Failure cases ----------------------------------------------------
-
-    def test_404_for_unknown_user(self, client):
-        res = client.get("/progress/u999")
-        assert res.status_code == 404
-        assert "error" in res.get_json()
-
-
-# ===========================================================================
-# 5. POST /enroll
-# ===========================================================================
-
-class TestEnroll:
-    # ---- Success cases ----------------------------------------------------
-
-    def test_enroll_returns_201(self, client):
-        res = client.post("/enroll", json={"user_id": "u1", "course_id": "c2"})
+class TestCreateCourse:
+    def test_create_success(self, client):
+        res = client.post("/api/courses", json=sample_course())
         assert res.status_code == 201
+        body = res.get_json()
+        assert body["id"] == 1
+        assert body["name"] == "Python Basics"
+        assert body["status"] == "Not Started"
+        assert "created_at" in body
 
-    def test_enroll_response_contains_confirmation(self, client):
-        body = client.post(
-            "/enroll", json={"user_id": "u1", "course_id": "c2"}
-        ).get_json()
-        assert "enrolled" in body["message"]
-        assert body["user_id"] == "u1"
-        assert body["course_id"] == "c2"
+    def test_auto_increment_id(self, client):
+        client.post("/api/courses", json=sample_course(name="Course A"))
+        res = client.post("/api/courses", json=sample_course(name="Course B"))
+        assert res.get_json()["id"] == 2
 
-    def test_enroll_updates_progress(self, client):
-        client.post("/enroll", json={"user_id": "u1", "course_id": "c4"})
-        body = client.get("/progress/u1").get_json()
-        enrolled_courses = [p["course_id"] for p in body["progress"]]
-        assert "c4" in enrolled_courses
+    def test_data_persists_in_json_file(self, client):
+        client.post("/api/courses", json=sample_course())
+        assert os.path.exists(COURSES_FILE)
+        with open(COURSES_FILE) as f:
+            data = json.load(f)
+        assert len(data) == 1
+        assert data[0]["name"] == "Python Basics"
 
-    def test_enroll_user_with_no_prior_enrollment(self, client):
-        res = client.post("/enroll", json={"user_id": "u3", "course_id": "c1"})
+    def test_400_missing_name(self, client):
+        res = client.post("/api/courses", json=sample_course(name=""))
+        assert res.status_code == 400
+        assert "name" in res.get_json()["error"]
+
+    def test_400_missing_multiple_fields(self, client):
+        res = client.post("/api/courses", json={})
+        assert res.status_code == 400
+
+    def test_400_invalid_status(self, client):
+        res = client.post("/api/courses", json=sample_course(status="Unknown"))
+        assert res.status_code == 400
+        assert "Invalid status" in res.get_json()["error"]
+
+    def test_400_invalid_date_format(self, client):
+        res = client.post("/api/courses", json=sample_course(target_date="31-12-2025"))
+        assert res.status_code == 400
+        assert "target_date" in res.get_json()["error"]
+
+
+# ===========================================================================
+# GET /api/courses — Read All
+# ===========================================================================
+
+class TestGetAllCourses:
+    def test_empty_list_when_no_courses(self, client):
+        res = client.get("/api/courses")
+        assert res.status_code == 200
+        assert res.get_json() == []
+
+    def test_returns_all_courses(self, client):
+        client.post("/api/courses", json=sample_course(name="Course A"))
+        client.post("/api/courses", json=sample_course(name="Course B"))
+        res = client.get("/api/courses")
+        assert res.status_code == 200
+        assert len(res.get_json()) == 2
+
+
+# ===========================================================================
+# GET /api/courses/<id> — Read Single
+# ===========================================================================
+
+class TestGetSingleCourse:
+    def test_get_existing_course(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.get("/api/courses/1")
+        assert res.status_code == 200
+        assert res.get_json()["name"] == "Python Basics"
+
+    def test_404_course_not_found(self, client):
+        res = client.get("/api/courses/999")
+        assert res.status_code == 404
+        assert "not found" in res.get_json()["error"]
+
+
+# ===========================================================================
+# PUT /api/courses/<id> — Update
+# ===========================================================================
+
+class TestUpdateCourse:
+    def test_update_status(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.put("/api/courses/1", json={"status": "In Progress"})
+        assert res.status_code == 200
+        assert res.get_json()["status"] == "In Progress"
+
+    def test_update_multiple_fields(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.put("/api/courses/1", json={
+            "name": "Advanced Python",
+            "target_date": "2026-06-30",
+        })
+        body = res.get_json()
+        assert body["name"] == "Advanced Python"
+        assert body["target_date"] == "2026-06-30"
+
+    def test_update_persists_in_file(self, client):
+        client.post("/api/courses", json=sample_course())
+        client.put("/api/courses/1", json={"status": "Completed"})
+        with open(COURSES_FILE) as f:
+            data = json.load(f)
+        assert data[0]["status"] == "Completed"
+
+    def test_400_invalid_status(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.put("/api/courses/1", json={"status": "Invalid"})
+        assert res.status_code == 400
+
+    def test_400_invalid_date(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.put("/api/courses/1", json={"target_date": "not-a-date"})
+        assert res.status_code == 400
+
+    def test_400_empty_body(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.put("/api/courses/1", json={})
+        assert res.status_code == 400
+
+    def test_404_course_not_found(self, client):
+        res = client.put("/api/courses/999", json={"status": "Completed"})
+        assert res.status_code == 404
+
+
+# ===========================================================================
+# DELETE /api/courses/<id> — Delete
+# ===========================================================================
+
+class TestDeleteCourse:
+    def test_delete_success(self, client):
+        client.post("/api/courses", json=sample_course())
+        res = client.delete("/api/courses/1")
+        assert res.status_code == 200
+        assert "deleted" in res.get_json()["message"]
+
+    def test_delete_removes_from_file(self, client):
+        client.post("/api/courses", json=sample_course())
+        client.delete("/api/courses/1")
+        res = client.get("/api/courses")
+        assert len(res.get_json()) == 0
+
+    def test_404_course_not_found(self, client):
+        res = client.delete("/api/courses/999")
+        assert res.status_code == 404
+
+
+# ===========================================================================
+# GET /api/courses/stats — Statistics (Bonus)
+# ===========================================================================
+
+class TestStats:
+    def test_stats_empty(self, client):
+        res = client.get("/api/courses/stats")
+        assert res.status_code == 200
+        body = res.get_json()
+        assert body["total_courses"] == 0
+
+    def test_stats_counts_by_status(self, client):
+        client.post("/api/courses", json=sample_course(name="A", status="Not Started"))
+        client.post("/api/courses", json=sample_course(name="B", status="In Progress"))
+        client.post("/api/courses", json=sample_course(name="C", status="In Progress"))
+        client.post("/api/courses", json=sample_course(name="D", status="Completed"))
+        res = client.get("/api/courses/stats")
+        body = res.get_json()
+        assert body["total_courses"] == 4
+        assert body["by_status"]["Not Started"] == 1
+        assert body["by_status"]["In Progress"] == 2
+        assert body["by_status"]["Completed"] == 1
+
+
+# ===========================================================================
+# Full CRUD Workflow — Integration Test
+# ===========================================================================
+
+class TestFullWorkflow:
+    def test_create_read_update_delete(self, client):
+        # CREATE
+        res = client.post("/api/courses", json=sample_course())
         assert res.status_code == 201
+        course_id = res.get_json()["id"]
 
-    # ---- Failure cases ----------------------------------------------------
+        # READ
+        res = client.get(f"/api/courses/{course_id}")
+        assert res.status_code == 200
+        assert res.get_json()["status"] == "Not Started"
 
-    def test_400_when_missing_course_id(self, client):
-        res = client.post("/enroll", json={"user_id": "u1"})
-        assert res.status_code == 400
+        # UPDATE
+        res = client.put(f"/api/courses/{course_id}", json={"status": "Completed"})
+        assert res.status_code == 200
+        assert res.get_json()["status"] == "Completed"
 
-    def test_400_when_missing_user_id(self, client):
-        res = client.post("/enroll", json={"course_id": "c1"})
-        assert res.status_code == 400
-
-    def test_400_when_empty_body(self, client):
-        res = client.post("/enroll", json={})
-        assert res.status_code == 400
-
-    def test_404_for_unknown_user(self, client):
-        res = client.post("/enroll", json={"user_id": "u999", "course_id": "c1"})
-        assert res.status_code == 404
-
-    def test_404_for_unknown_course(self, client):
-        res = client.post("/enroll", json={"user_id": "u1", "course_id": "c999"})
-        assert res.status_code == 404
-
-    def test_409_for_duplicate_enrollment(self, client):
-        res = client.post("/enroll", json={"user_id": "u1", "course_id": "c1"})
-        assert res.status_code == 409
-        assert "already enrolled" in res.get_json()["error"]
-
-
-# ===========================================================================
-# 6. POST /complete_lesson
-# ===========================================================================
-
-class TestCompleteLesson:
-    # ---- Success cases ----------------------------------------------------
-
-    def test_returns_200(self, client):
-        res = client.post(
-            "/complete_lesson", json={"user_id": "u1", "course_id": "c1"}
-        )
+        # DELETE
+        res = client.delete(f"/api/courses/{course_id}")
         assert res.status_code == 200
 
-    def test_increments_completed_lessons(self, client):
-        body = client.post(
-            "/complete_lesson", json={"user_id": "u1", "course_id": "c1"}
-        ).get_json()
-        assert body["completed_lessons"] == 4
-        assert body["total_lessons"] == 5
-
-    def test_multiple_completions_increment_correctly(self, client):
-        client.post("/complete_lesson", json={"user_id": "u1", "course_id": "c1"})
-        body = client.post(
-            "/complete_lesson", json={"user_id": "u1", "course_id": "c1"}
-        ).get_json()
-        assert body["completed_lessons"] == 5
-
-    def test_already_fully_completed(self, client):
-        body = client.post(
-            "/complete_lesson", json={"user_id": "u2", "course_id": "c3"}
-        ).get_json()
-        assert "fully completed" in body["message"]
-
-    # ---- Failure cases ----------------------------------------------------
-
-    def test_400_when_empty_body(self, client):
-        res = client.post("/complete_lesson", json={})
-        assert res.status_code == 400
-
-    def test_404_for_unknown_user(self, client):
-        res = client.post(
-            "/complete_lesson", json={"user_id": "u999", "course_id": "c1"}
-        )
+        # VERIFY DELETED
+        res = client.get(f"/api/courses/{course_id}")
         assert res.status_code == 404
-
-    def test_404_for_unknown_course(self, client):
-        res = client.post(
-            "/complete_lesson", json={"user_id": "u1", "course_id": "c999"}
-        )
-        assert res.status_code == 404
-
-    def test_404_when_not_enrolled(self, client):
-        res = client.post(
-            "/complete_lesson", json={"user_id": "u3", "course_id": "c1"}
-        )
-        assert res.status_code == 404
-        assert "not enrolled" in res.get_json()["error"]
-
-
-# ===========================================================================
-# 7. GET /recommend/<user_id>
-# ===========================================================================
-
-class TestRecommend:
-    # ---- Success cases ----------------------------------------------------
-
-    def test_returns_200(self, client):
-        res = client.get("/recommend/u1")
-        assert res.status_code == 200
-
-    def test_returns_recommendations_list(self, client):
-        body = client.get("/recommend/u1").get_json()
-        assert "recommendations" in body
-        assert isinstance(body["recommendations"], list)
-
-    def test_excludes_already_enrolled_courses(self, client):
-        recs = client.get("/recommend/u1").get_json()["recommendations"]
-        rec_ids = [r["course_id"] for r in recs]
-        assert "c1" not in rec_ids
-
-    def test_recommendations_match_user_interests(self, client):
-        recs = client.get("/recommend/u1").get_json()["recommendations"]
-        for rec in recs:
-            assert len(rec["matching_tags"]) > 0
-
-    def test_recommendations_ranked_by_relevance(self, client):
-        recs = client.get("/recommend/u1").get_json()["recommendations"]
-        tag_counts = [len(r["matching_tags"]) for r in recs]
-        assert tag_counts == sorted(tag_counts, reverse=True)
-
-    def test_recommend_after_enrolling_reduces_results(self, client):
-        before = client.get("/recommend/u1").get_json()["recommendations"]
-        new_course = before[0]["course_id"]
-        client.post("/enroll", json={"user_id": "u1", "course_id": new_course})
-        after = client.get("/recommend/u1").get_json()["recommendations"]
-        assert len(after) < len(before)
-
-    # ---- Failure cases ----------------------------------------------------
-
-    def test_404_for_unknown_user(self, client):
-        res = client.get("/recommend/u999")
-        assert res.status_code == 404
-        assert "error" in res.get_json()

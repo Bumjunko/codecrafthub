@@ -18,134 +18,127 @@ Welcome message with a directory of available endpoints.
 
 ---
 
-## GET `/users`
+## POST `/api/courses`
 
-List all registered users.
+Add a new course.
 
-**Response `200`**
-```json
-[
-  { "id": "u1", "name": "Alice", "interests": ["python", "data-science"] },
-  { "id": "u2", "name": "Bob",   "interests": ["web", "javascript"] }
-]
-```
-
----
-
-## GET `/courses`
-
-List all available courses.
-
-**Response `200`**
-```json
-[
-  { "id": "c1", "title": "Python Basics", "tags": ["python"], "total_lessons": 5 }
-]
-```
-
----
-
-## GET `/progress/<user_id>`
-
-View a specific user's learning progress across all enrolled courses.
-
-**Response `200`**
+**Request body** (all fields required)
 ```json
 {
-  "user_id": "u1",
-  "user_name": "Alice",
-  "progress": [
-    {
-      "course_id": "c1",
-      "course_title": "Python Basics",
-      "completed_lessons": 3,
-      "total_lessons": 5
-    }
-  ]
+  "name": "Python Basics",
+  "description": "Learn Python fundamentals",
+  "target_date": "2025-12-31",
+  "status": "Not Started"
 }
 ```
 
-**Response `404`** — User not found.
-
----
-
-## POST `/enroll`
-
-Enroll a user in a course.
-
-**Request body**
-```json
-{ "user_id": "u1", "course_id": "c2" }
-```
-
-| Status | Meaning |
-|--------|---------|
-| `201`  | Successfully enrolled |
-| `400`  | Missing required fields |
-| `404`  | User or course not found |
-| `409`  | Already enrolled |
+| Field | Type | Rules |
+|-------|------|-------|
+| name | string | Required, non-empty |
+| description | string | Required, non-empty |
+| target_date | string | Required, format `YYYY-MM-DD` |
+| status | string | Required, one of: `Not Started`, `In Progress`, `Completed` |
 
 **Response `201`**
 ```json
 {
-  "message": "Alice enrolled in Data Science with Pandas",
-  "user_id": "u1",
-  "course_id": "c2"
+  "id": 1,
+  "name": "Python Basics",
+  "description": "Learn Python fundamentals",
+  "target_date": "2025-12-31",
+  "status": "Not Started",
+  "created_at": "2025-03-19T10:30:00.000000"
 }
 ```
 
+**Error responses:** `400` — missing fields, invalid status, or invalid date format.
+
 ---
 
-## POST `/complete_lesson`
+## GET `/api/courses`
 
-Mark the next lesson as completed for an enrolled course.
+Get all courses.
 
-**Request body**
+**Response `200`**
 ```json
-{ "user_id": "u1", "course_id": "c1" }
+[
+  { "id": 1, "name": "Python Basics", ... },
+  { "id": 2, "name": "Flask Web Dev", ... }
+]
 ```
 
-| Status | Meaning |
-|--------|---------|
-| `200`  | Lesson marked complete (or course already fully completed) |
-| `400`  | Missing required fields |
-| `404`  | User/course not found or user not enrolled |
+Returns an empty array `[]` if no courses exist.
+
+---
+
+## GET `/api/courses/<id>`
+
+Get a specific course by ID.
 
 **Response `200`**
 ```json
 {
-  "message": "Lesson completed!",
-  "user_id": "u1",
-  "course_id": "c1",
-  "completed_lessons": 4,
-  "total_lessons": 5
+  "id": 1,
+  "name": "Python Basics",
+  "description": "Learn Python fundamentals",
+  "target_date": "2025-12-31",
+  "status": "Not Started",
+  "created_at": "2025-03-19T10:30:00.000000"
 }
 ```
 
+**Response `404`** — Course not found.
+
 ---
 
-## GET `/recommend/<user_id>`
+## PUT `/api/courses/<id>`
 
-Get personalized course recommendations based on the user's interests, excluding courses the user is already enrolled in. Results are ranked by how many interests match each course's tags.
+Update one or more fields of an existing course.
+
+**Request body** (only include fields you want to change)
+```json
+{
+  "status": "In Progress"
+}
+```
+
+Updatable fields: `name`, `description`, `target_date`, `status`.
+
+**Response `200`** — Returns the full updated course object.
+
+**Error responses:**
+- `400` — Empty body, invalid status, or invalid date format
+- `404` — Course not found
+
+---
+
+## DELETE `/api/courses/<id>`
+
+Delete a course by ID.
 
 **Response `200`**
 ```json
 {
-  "user_id": "u1",
-  "user_name": "Alice",
-  "recommendations": [
-    {
-      "course_id": "c2",
-      "course_title": "Data Science with Pandas",
-      "matching_tags": ["python", "data-science"]
-    },
-    {
-      "course_id": "c4",
-      "course_title": "Flask Web Development",
-      "matching_tags": ["python"]
-    }
-  ]
+  "message": "Course 1 deleted successfully"
 }
 ```
 
-**Response `404`** — User not found.
+**Response `404`** — Course not found.
+
+---
+
+## GET `/api/courses/stats`
+
+Get statistics about all courses.
+
+**Response `200`**
+```json
+{
+  "total_courses": 4,
+  "by_status": {
+    "Not Started": 1,
+    "In Progress": 2,
+    "Completed": 1
+  }
+}
+```
